@@ -14,6 +14,7 @@ ESC - exit
 s   - slow
 f   - fast
 d   - stop
+r   - restart
 '''
 
 # Python 2/3 compatibility
@@ -62,10 +63,11 @@ def draw_hist(im):
 
 class App:
     def __init__(self, video_src):
+        self.video_src = video_src
         self.track_len = 20
         self.detect_interval = 5 
         self.tracks = []
-        self.cam = video.create_capture(video_src)
+        self.cam = video.create_capture(self.video_src)
         self.frame_idx = 0
         
         self.fgbg = cv2.createBackgroundSubtractorMOG2()
@@ -109,209 +111,51 @@ class App:
             # Step 1: BackgroundSubtractor
             #########
             fgmask = self.fgbg.apply(frame_gray, 0.7)
-            cv2.imshow("fgmask", fgmask)
+            #cv2.imshow("fgmask", fgmask)
 
-            if len(self.tracks) > 0:
-                
-                #########
-                # Step 3: Track goodFeatures 
-                #########
-                # track feature points using OpticalFlowPyrLK
-                img0, img1 = self.prev_gray, frame_gray
-                p0 = np.float32([tr[-1] for tr in self.tracks]).reshape(-1, 1, 2)
-                p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
-                p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-                d = abs(p0-p0r).reshape(-1, 2).max(-1)
-                good = d < 1
-                
-                new_tracks = []
-                for tr, (x, y), good_flag in zip(self.tracks, p1.reshape(-1, 2), good):
-                    if not good_flag:
-                        continue
-                    tr.append((x, y))
-                    if len(tr) > self.track_len:
-                        del tr[0]
-                    new_tracks.append(tr)
-                    cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
-                self.tracks = new_tracks
-                cv2.polylines(vis, [np.int32(tr) for tr in self.tracks], False, (0, 255, 0))
-                draw_str(vis, (20, 20), 'track count: %d' % len(self.tracks))
-                
-                draw_str(vis, (20, 80), 'motion: %f' % self.motion_ratio)
-                draw_str(vis, (20, 100), 'minFeaturesNum: %d' % self.minFeaturesNum)
-                draw_str(vis, (20, 120), 'standup_time: %d' % self.standup_time)
-                
-                #########
-                # Step 4: Detect "stand up" pattern in self.tracks
-                # 1. revise(2): revise distortion from depth(large near and small far)
-                # 2. standup_distance(15): decide if it's standup feature lines
-                # 3. minLineNum(2): standup region should contain enough standup feature lines
-                # 4. minFeaturesNum(100): standup region should contain enough goodFeatures
-                # 5. standup_time(10): standing up need some time
-                #########
-                
-                # each in self.tracks is list, containing at most 20(self.track_len) points.
+            fgmask = cv2.medianBlur(fgmask, 7)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
+            closed = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, kernel)
+            closed = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
+            cv2.imshow("close", closed)
 
-                # get standup_tracks and sitdown_tracks
-                #standup_distance = 15
-                standup_tracks = []
-                sitdown_tracks = []
-                region = (np.int(0.15*vis.shape[0]), np.int(0.8*vis.shape[0]))
-                revise = 2
-                for tr in self.tracks:
-                    dis = tr[0][1]-tr[-1][1] # only consider vertical distance
-                
-                    # revise dis according to y (tr[0][1])
-                    alpha = revise * abs(tr[0][1] - region[1])*1.0 / abs(region[0] - region[1])
-                    dis *= (1+alpha)
+            _, contours0, hierarchy = cv2.findContours( closed.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+            contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]    
+            print(len(contours))
 
-                    # [standup]
-                    if dis > self.standup_distance:
-                        standup_tracks.append(tr)
-                    
-                    # [sitdown]
-                    if -dis > self.standup_distance:
-                        sitdown_tracks.append(tr)
+            maxLength = 0
+            maxLength_index = 0
+            for i in range(0, len(contours)):
+                if len(contours[i]) > maxLength:
+                    maxLength = len(contours[i])
+                    maxLength_index = i
 
-                draw_str(vis, (20, 40), 'standup lines[%d]: %d' % (self.minLineNum, len(standup_tracks)))
-                draw_str(vis, (20, 60), 'sitdown lines[%d]: %d' % (self.minLineNum, len(sitdown_tracks)))
+            #contourImg = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
+            #cv2.drawContours( contourImg, contours, maxLength_index, (128,0,255), 3)
+            #cv2.drawContours( contourImg, contours, -1, (255,255,255), 1)
+            #cv2.imshow("contour", contourImg)
 
-                # judge standup region
-                #minLineNum = 2
-                if len(standup_tracks) > self.minLineNum:
-                    cv2.polylines(vis, [np.int32(tr) for tr in standup_tracks], False, (255, 0, 0))
-
-                    # step 1: get standup rectangle
-                    center = [0,0]
-                    point_sum = 0
-                    for tr in standup_tracks:
-                        for point in tr:
-                            center[0] += point[0]
-                            center[1] += point[1]
-                            point_sum += 1
-                    center[0] = np.int(1.0*center[0]/point_sum)
-                    center[1] = np.int(1.0*center[1]/point_sum)
-                    halfSize = 40
-                    self.rect = [(center[0]-halfSize, center[1]-halfSize*2), (center[0]+halfSize, center[1]+halfSize*2)]
-
-                    # step 2: rect should contain enough motion region
-                    # but don't know how to add to result
-                    #motion_ratio = 0.2
-                    motion = 0
-                    roi = fgmask[self.rect[0][1]:self.rect[1][1], self.rect[0][0]:self.rect[1][0]]
-                    hist = cv2.calcHist([roi],[0],None,[256],[0,256])
-                    for x,y in enumerate(hist):
-                        if x > 100:
-                            motion += y
-                    if roi.size > 0:
-                        motion = 1.0*motion/roi.size
-                        if motion > self.motion_ratio:
-                            self.containsEnoughMotion = True
-                    #cv2.imshow('roi', roi)
-                    #cv2.imshow('hist', draw_hist(roi)) 
-
-                    # step 3: rect should contain enough feature points
-                    #minFeaturesNum = 100
-                    point_cnt = 0
-                    for tr in self.tracks: 
-                        # use self.tracks other than standup_tracks
-                        # cause self.tracks is much more than standup_tracks and may be more rebust.
-                        for point in tr:
-                            if point[0] > self.rect[0][0] and point[0] < self.rect[1][0] and point[1] > self.rect[0][1] and point[1] < self.rect[1][1]: 
-                                point_cnt += 1
-                    if point_cnt > self.minFeaturesNum:
-                        standup_frame_cnt = standup_frame_cnt + 1
-                    else: 
-                        standup_frame_cnt = 0
-
-                    # Step 4: standup continues for some time
-                    #standup_time = 10
-                    if standup_frame_cnt > self.standup_time and self.containsEnoughMotion:
-                        self.detected = True 
-                    
-                    cv2.rectangle(vis, self.rect[0], self.rect[1], (0, 255, 255), 1)
-                    draw_str(vis, (self.rect[0][0], self.rect[1][1]+20), 'motion:%f' % (motion))
-                    draw_str(vis, (self.rect[0][0], self.rect[1][1]+40), 'points:%d' % (point_cnt))
-                    draw_str(vis, (self.rect[0][0], self.rect[1][1]+60), 'time:%d' % (standup_frame_cnt))
-
-
-                minLineNum_sitdown = self.minLineNum  
-                minFeaturesNum_sitdown= 3
-                sitdown_time = self.standup_time
-                if len(sitdown_tracks) > minLineNum_sitdown:
-                    cv2.polylines(vis, [np.int32(tr) for tr in sitdown_tracks], False, (0, 0, 255))
-                    
-                    # sitdown_tracks points should be in detecting rect and has minFeaturesNum and 
-                    # sitdown continues for some time
-                    if self.detected:
-                        point_cnt = 0
-                        for tr in sitdown_tracks:
-                            for point in tr:
-                                if point[0] > self.rect[0][0] and point[0] < self.rect[1][0] and point[1] > self.rect[0][1] and point[1] < self.rect[1][1]: 
-                                    point_cnt += 1
-                        
-                        #print("point_cnt in for sitdown: ", point_cnt)
-                        #print("rect: ",self.rect)
-                        if point_cnt > minFeaturesNum_sitdown:
-                            sitdown_frame_cnt += 1
-                        
-                        if sitdown_frame_cnt > sitdown_time:
-                            self.detected = False
-                            self.containsEnoughMotion = False
-                    else:
-                        sitdown_frame_cnt = 0
-                #
-                # End Step 4
-                ############
-
-
-            if self.detected:
-                cv2.rectangle(vis, self.rect[0], self.rect[1], (0, 255, 255), 5)
-                    
-        
-            #########
-            # Step 2: find goodFeatures 
-            #########
-            # find good points to track and saved in self.tracks
-            if self.frame_idx % self.detect_interval == 0:
-
-                # remove static points
-                minDistance = 10
-                update_tracks = []
-                for tr in self.tracks:
-                    if len(tr) > 5:
-                        if abs(tr[0][0]-tr[-1][0]) + abs(tr[0][1]-tr[-1][1]) > minDistance:
-                            update_tracks.append(tr)
-                self.tracks = update_tracks
-
-                # find feature points in fgmask
-                p = cv2.goodFeaturesToTrack(frame_gray, mask = fgmask, **feature_params)
-                if p is not None:
-                    for x, y in np.float32(p).reshape(-1, 2):
-                        self.tracks.append([(x, y)])
-            
-            ## find student area
-            #region = (0.15, 0.8)
-            #for y in range(0, np.int(region[0]*vis.shape[0])):
-            #    for x in range(vis.shape[1]):
-            #        vis[y][x] = (0,0,0)
-
-            #for y in range(np.int(region[1]*vis.shape[0]), vis.shape[0]):
-            #    for x in range(vis.shape[1]):
-            #        vis[y][x] = (0,0,0)
             
             self.frame_idx += 1
             self.prev_gray = frame_gray
+           
+            cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 3)
+            cv2.drawContours( vis, contours, -1, (255,255,255), 1)
+           
             cv2.imshow('lk_track', vis)
             #cv2.imshow('mask', fgmask)
 
             ch = 0xFF & cv2.waitKey(delayTime) # 20
             if ch == 27:
                 break
+            if ch == ord('g'):
+                delayTime = 1
             if ch == ord('f'):
                 delayTime = 20
             if ch == ord('s'):
                 delayTime = 500
+            if ch == ord('r'):
+                self.cam = video.create_capture(self.video_src)
             if ch == ord('d'):
                 ch = 0xFF & cv2.waitKey(delayTime) 
                 while ch != ord('d'):
