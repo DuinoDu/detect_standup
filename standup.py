@@ -89,7 +89,10 @@ class App:
         #containsEnoughMotion = False
         #detected = False
         delayTime = 500
-        
+         
+        prev_contours = []
+        prev_contourMask = []
+        prev_centers = []
         while True:
             ret, frame = self.cam.read()
             if not ret:
@@ -113,37 +116,118 @@ class App:
             fgmask = self.fgbg.apply(frame_gray, 0.7)
             #cv2.imshow("fgmask", fgmask)
 
+            
+            #########
+            # Step 2: morpology
+            #########
             fgmask = cv2.medianBlur(fgmask, 7)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
             closed = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, kernel)
             closed = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
-            cv2.imshow("close", closed)
 
+
+            
+            #########
+            # Step 3: contour
+            #########
             _, contours0, hierarchy = cv2.findContours( closed.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]    
-            print(len(contours))
 
+            # filter contours
+            minLength = 2
+            minArea = 20
+            new_contours=[]
+            for c in contours:
+                if len(c) > minLength and cv2.contourArea(c) > minArea:
+                    new_contours.append(c)
+            contours = new_contours
+
+            # get contour mask in hull way
+            hulls = []
+            contourMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
+            for contour in contours:
+                hull = cv2.convexHull(contour)
+                hulls.append(hull)
+            cv2.drawContours( contourMask, hulls, -1, (255,255,255), 1)
+           
+            # get centers of contours
+            centers = []
+            for contour in contours:
+                M = cv2.moments(contour)
+                cx = int(M['m10']/M['m00'])
+                cy = int(M['m01']/M['m00'])
+                centers.append((cx, cy))
+
+            '''
             maxLength = 0
             maxLength_index = 0
             for i in range(0, len(contours)):
                 if len(contours[i]) > maxLength:
                     maxLength = len(contours[i])
                     maxLength_index = i
+            '''
 
-            #contourImg = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
-            #cv2.drawContours( contourImg, contours, maxLength_index, (128,0,255), 3)
-            #cv2.drawContours( contourImg, contours, -1, (255,255,255), 1)
-            #cv2.imshow("contour", contourImg)
-
+            # find relationship between contours and prev_contours
+            new_contours = []
+            if len(prev_contours) > 0:
+                prev_flag = [0 for i in range(len(prev_contours))]
+                isSplit = [False for i in range(len(contours))]
+                relation = [0 for i in range(len(contours))] # index is contours, value is prev_contours
+                # find one split into two case
+                for i1, contour in enumerate(contours):
+                    cx = centers[i1][0] 
+                    cy = centers[i1][1]
+                    if prev_contourMask[cy][cx][0] == 255:        
+                        # find closest prev_contour and add 1
+                        minDistance = 0
+                        minI2 = 0
+                        for i2, prev_center in enumerate(prev_centers):
+                            distance = abs(prev_center[0]-cx) + abs(prev_center[1]-cy)
+                            if distance < minDistance:
+                                minDistance = distance 
+                                minI2 = i2 
+                        prev_flag[minI2] = prev_flag[minI2] + 1
+                        if prev_flag[minI2] > 1:
+                            isSplit[i1] = True
+                        relation[i1] = minI2
+                
+                #new_contours = []
+                haveRead = [False for i in range(len(prev_contours))]
+                for i1, contour in enumerate(contours):
+                    if isSplit[i1] is True:
+                        if haveRead[relation[i1]] is False:
+                            new_contours.append(contours[relation[i1]])
+                            haveRead[relation[i1]] = True
+                    else:
+                        new_contours.append(contour)
+                #contours = new_contours
             
+            print(len(contours))
+            print(len(new_contours))
+            #cv2.imshow('mask', fgmask)
+            #cv2.imshow("close", closed)
+            
+            hulls2 = []
+            for contour in new_contours:
+                hull = cv2.convexHull(contour)
+                hulls2.append(hull)
+            cv2.drawContours( contourMask, hulls2, -1, (255,0,255), 2)
+            
+            #cv2.imshow("contour", contourMask)
+
+            #cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 3)
+            cv2.drawContours( vis, contours, -1, (255,255,255), 1)
+            cv2.drawContours( vis, new_contours, -1, (255,0,255), 1)
+            cv2.imshow('lk_track', vis)
+
+
             self.frame_idx += 1
             self.prev_gray = frame_gray
-           
-            cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 3)
-            cv2.drawContours( vis, contours, -1, (255,255,255), 1)
-           
-            cv2.imshow('lk_track', vis)
-            #cv2.imshow('mask', fgmask)
+       
+            prev_contours = len(new_contours) == 0 and contours or new_contours 
+            prev_contourMask = contourMask
+            prev_centers = centers
+
 
             ch = 0xFF & cv2.waitKey(delayTime) # 20
             if ch == 27:
