@@ -162,12 +162,6 @@ class App:
         #detected = False
         delayTime = 500
          
-        prev_contours = []
-        prev_contourMask = []
-        prev_centers = []
-        
-        prev_motionLabels = []
-
         while True:
             ret, frame = self.cam.read()
             if not ret:
@@ -223,7 +217,7 @@ class App:
                 hull = cv2.convexHull(contour)
                 hulls.append(hull)
             cv2.drawContours( contourMask, hulls, -1, (255,255,255), 1)
-           
+             
             # get centers of contours
             centers = []
             for contour in contours:
@@ -232,96 +226,27 @@ class App:
                 cy = int(M['m01']/M['m00'])
                 centers.append((cx, cy))
 
-            '''
             maxLength = 0
             maxLength_index = 0
             for i in range(0, len(contours)):
                 if len(contours[i]) > maxLength:
                     maxLength = len(contours[i])
                     maxLength_index = i
-            '''
-
-            # find relationship between contours and prev_contours
-            new_contours = []
-            
-            motionLabels = [-1 for i in range(len(contours))]
-            if len(prev_contours) > 0:
-                prev_flag = [0 for i in range(len(prev_contours))]
-                isSplit = [False for i in range(len(contours))]
-                relation = [0 for i in range(len(contours))] # index is contours, value is prev_contours
-                
-                if _DEBUG==True:
-                    import pdb
-                    pdb.set_trace()
-
-                #cv2.imshow("contour", prev_contourMask)
-                for i1, contour in enumerate(contours):
-                    cx = centers[i1][0] 
-                    cy = centers[i1][1]
-                    if prev_contourMask[cy][cx][0] == 255:        
-                        # find closest prev_contour and add 1
-                        minDistance = 100000
-                        minI2 = 0
-                        for i2, prev_center in enumerate(prev_centers):
-                            distance = abs(prev_center[0]-cx) + abs(prev_center[1]-cy)
-                            if distance < minDistance:
-                                minDistance = distance 
-                                minI2 = i2 
-                        prev_flag[minI2] = prev_flag[minI2] + 1
-                        if prev_flag[minI2] > 1:
-                            isSplit[i1] = True
-                        relation[i1] = minI2
-                        motionLabels[i1] = prev_motionLabels[minI2]
-
-                # set motionLabels
-                for i, label in enumerate(motionLabels):
-                    if label == -1:
-                        cnt = 0
-                        while True:
-                            if cnt in motionLabels:
-                                cnt = cnt + 1
-                            else:
-                                motionLabels[i] = cnt
-                                break
-
-                # find one split into two case
-                #new_contours = []
-                haveRead = [False for i in range(len(prev_contours))]
-                for i1, contour in enumerate(contours):
-                    if isSplit[i1] is True:
-                        if haveRead[relation[i1]] is False:
-                            new_contours.append(contours[relation[i1]])
-                            haveRead[relation[i1]] = True
-                    else:
-                        new_contours.append(contour)
-                #contours = new_contours
-            else:
-                motionLabels = [i for i in range(len(contours))]
-           
 
             #cv2.imshow('mask', fgmask)
             #cv2.imshow("close", closed)
             #cv2.imshow("contour", contourMask)
 
-            #cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 3)
+            cv2.drawContours( vis, hulls, maxLength_index, (128,0,255), 2)
+            #cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 2)
             #cv2.drawContours( vis, contours, -1, (255,255,255), 1)
             #cv2.drawContours( vis, new_contours, -1, (255,0,255), 1)
             
-            for index, contour in enumerate(contours):
-                cv2.drawContours( vis, [contour], 0, color[motionLabels[index]%len(color)], 1)
-                draw_str(vis, centers[index], '%d' % motionLabels[index])
-
             cv2.imshow('lk_track', vis)
-
 
             self.frame_idx += 1
             self.prev_gray = frame_gray
        
-            prev_contours = len(new_contours) == 0 and contours or new_contours 
-            prev_contourMask = contourMask
-            prev_centers = centers
-            prev_motionLabels = motionLabels
-
             ch = 0xFF & cv2.waitKey(delayTime) # 20
             if ch == 27:
                 break
