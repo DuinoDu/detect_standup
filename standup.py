@@ -6,7 +6,7 @@ Standup Detector
 
 Usage
 -----
-standup.py [<video_source>]
+standup.py [video file or folder containing videos]
 
 Keys
 ----
@@ -15,6 +15,7 @@ s   - slow
 f   - fast
 d   - stop
 r   - restart
+right arrow  - move foreward
 '''
 
 
@@ -141,6 +142,7 @@ class App:
         self.tracks = []
         self.cam = video.create_capture(self.video_src)
         self.frame_idx = 0
+        self.ch = 0
         
         self.fgbg = cv2.createBackgroundSubtractorMOG2()
         self.rect = []
@@ -160,12 +162,17 @@ class App:
         sitdown_frame_cnt = 0
         #containsEnoughMotion = False
         #detected = False
-        delayTime = 500
-         
+        delayTime = 1
+        
+        badframeCnt = 0
         while True:
             ret, frame = self.cam.read()
             if not ret:
-                continue
+                badframeCnt = badframeCnt + 1
+                if badframeCnt > 3:
+                    break
+                else:
+                    continue
             
             #########
             # Step 0: preprocessing
@@ -237,7 +244,7 @@ class App:
             #cv2.imshow("close", closed)
             #cv2.imshow("contour", contourMask)
 
-            cv2.drawContours( vis, hulls, maxLength_index, (128,0,255), 2)
+            cv2.drawContours( vis, hulls, -1, (128,0,255), 2)
             #cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 2)
             #cv2.drawContours( vis, contours, -1, (255,255,255), 1)
             #cv2.drawContours( vis, new_contours, -1, (255,0,255), 1)
@@ -247,22 +254,49 @@ class App:
             self.frame_idx += 1
             self.prev_gray = frame_gray
        
-            ch = 0xFF & cv2.waitKey(delayTime) # 20
+            self.ch = 0xFF & cv2.waitKey(delayTime) # 20
+            ch = self.ch
+            # Esc
             if ch == 27:
                 break
+            # faster
             if ch == ord('g'):
                 delayTime = 1
+            # fast
             if ch == ord('f'):
                 delayTime = 20
+            # slow
             if ch == ord('s'):
                 delayTime = 500
+            # replay
             if ch == ord('r'):
                 self.cam = video.create_capture(self.video_src)
+            # stop   
             if ch == ord('d'):
                 ch = 0xFF & cv2.waitKey(delayTime) 
                 while ch != ord('d'):
                     ch = 0xFF & cv2.waitKey(delayTime)
                     continue;
+            # move foreward > 
+            if ch == 83:
+                for i in range(20):
+                    self.cam.read()
+
+def getVideofiles(directory):
+    import os
+    if not os.path.exists(directory):
+        print("file or directory not exists")
+    else:
+        if os.path.isfile(directory):
+            return [directory]
+        elif os.path.isdir(directory):
+            files = os.listdir(directory)
+            videos = []
+            for f in files:
+                if f.find("mp4") > 0 and f.find("src") < 0:
+                    videos.append(directory+"/"+f)
+            return videos
+
 
 def main():
     import sys
@@ -272,8 +306,17 @@ def main():
         video_src = 0
 
     print(__doc__)
-    App(video_src).run()
-    cv2.destroyAllWindows()
+    
+    videos = getVideofiles(video_src)
+
+    for video in videos:
+        print("current video:"+video)
+        app = App(video)
+        app.run()
+        if app.ch == 27:
+            break
+    
+    #cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
