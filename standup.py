@@ -165,7 +165,8 @@ class App:
         #containsEnoughMotion = False
         #detected = False
         delayTime = 1
-        
+        jump = 20
+
         badframeCnt = 0
         while True:
             ret, frame = self.cam.read()
@@ -221,12 +222,27 @@ class App:
 
             # get hulls
             hulls = []
-            hullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
             for contour in contours:
                 hull = cv2.convexHull(contour)
                 hulls.append(hull)
-            cv2.drawContours( hullMask, hulls, -1, (255,255,255), -1)
-             
+            
+
+            # edit hulls
+
+            #hullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
+            #cv2.drawContours( hullMask, hulls, -1, (255,255,255), -1)
+            
+            hullMask = np.zeros((closed.shape[0], closed.shape[1], 1), np.uint8)
+            cv2.drawContours( hullMask, hulls, -1, 255, 1)
+            _, contours1, hierarchy = cv2.findContours( hullMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            hulls = []
+            for contour in contours1:
+                hull = cv2.convexHull(contour)
+                hulls.append(hull)
+            cv2.drawContours( hullMask, hulls, -1, 255, -1)
+            #cv2.imshow("editHull", hullMask)
+            
+
             # get centers of contours
             centers = []
             for hull in hulls:
@@ -252,7 +268,7 @@ class App:
                 for index, hull in enumerate(hulls):
                     cx = centers[index][0]
                     cy = centers[index][1]
-                    if self.prevHullMask[cy][cx][0] != 0:
+                    if self.prevHullMask[cy][cx] != 0:
                         # find corresponding hull
                         minDist = 10000
                         prevIndex = 0
@@ -339,8 +355,14 @@ class App:
                     ch = 0xFF & cv2.waitKey(delayTime)
                     continue;
             # move foreward > 
+            if ch == 82:
+                jump = jump + 20
+                print("jupm speed: ", jump)
+            if ch == 84:
+                jump = (jump - 20 > 0) and (jump - 20) or jump
+                print("jupm speed: ", jump)
             if ch == 83:
-                for i in range(20):
+                for i in range(jump):
                     self.cam.read()
 
 def getVideofiles(directory):
