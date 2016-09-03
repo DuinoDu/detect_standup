@@ -206,7 +206,7 @@ class App:
 
             
             #########
-            # Step 3: contour
+            # Step 3: contour and hull
             #########
             _, contours0, hierarchy = cv2.findContours( closed.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
             contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]    
@@ -227,11 +227,7 @@ class App:
                 hulls.append(hull)
             
 
-            # edit hulls
-
-            #hullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
-            #cv2.drawContours( hullMask, hulls, -1, (255,255,255), -1)
-            
+            # merge nest hulls
             hullMask = np.zeros((closed.shape[0], closed.shape[1], 1), np.uint8)
             cv2.drawContours( hullMask, hulls, -1, 255, 1)
             _, contours1, hierarchy = cv2.findContours( hullMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -250,15 +246,6 @@ class App:
                 cx = int(M['m10']/M['m00'])
                 cy = int(M['m01']/M['m00'])
                 centers.append((cx, cy))
-
-            '''
-            maxLength = 0
-            maxLength_index = 0
-            for i in range(0, len(contours)):
-                if len(contours[i]) > maxLength:
-                    maxLength = len(contours[i])
-                    maxLength_index = i
-            '''
            
             # label hulls
             hullLables = [-1 for i in range(len(hulls))]
@@ -288,7 +275,63 @@ class App:
                                 hullLables[index] = label
                                 break
           
-            #print("hullLables", hullLables)
+            ######
+            # Step 4: Sparse optflow
+            ######
+            if len(self.tracks) > 0:
+                # track feature points using OpticalFlowPyrLK
+                img0, img1 = self.prev_gray, frame_gray
+                p0 = np.float32([tr[-1] for tr in self.tracks]).reshape(-1, 1, 2)
+                p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
+                p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
+                #p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, self.prevHullMask, **lk_params)
+                #p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, hullMask, **lk_params)
+                d = abs(p0-p0r).reshape(-1, 2).max(-1)
+                good = d < 1
+                
+                new_tracks = []
+                for tr, (x, y), good_flag in zip(self.tracks, p1.reshape(-1, 2), good):
+                    if not good_flag:
+                        continue
+                    tr.append((x, y))
+                    if len(tr) > self.track_len:
+                        del tr[0]
+                    new_tracks.append(tr)
+                    cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
+                self.tracks = new_tracks
+                cv2.polylines(vis, [np.int32(tr) for tr in self.tracks], False, (0, 255, 0))
+
+
+            #########
+            # Step 5(before step4 to ): find goodFeatures 
+            #########
+            # find good points to track and saved in self.tracks
+            if self.frame_idx % self.detect_interval == 0:
+                # remove static points
+                minDistance = 10
+                update_tracks = []
+                for tr in self.tracks:
+                    if len(tr) > 5:
+                        if abs(tr[0][0]-tr[-1][0]) + abs(tr[0][1]-tr[-1][1]) > minDistance:
+                            update_tracks.append(tr)
+                self.tracks = update_tracks
+
+                # find feature points in fgmask
+                p = cv2.goodFeaturesToTrack(frame_gray, mask = hullMask, **feature_params)
+                if p is not None:
+                    for x, y in np.float32(p).reshape(-1, 2):
+                        self.tracks.append([(x, y)])
+
+
+
+
+            
+
+
+
+            ########
+            # Draw result
+            ########
             for i, hull in enumerate(hulls):
                 cv2.drawContours( vis, [hull], -1, color[hullLables[i]%len(color)], 2)
            
