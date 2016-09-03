@@ -193,13 +193,13 @@ class App:
             # Step 1: BackgroundSubtractor
             #########
             fgmask = self.fgbg.apply(frame_gray, 0.7)
+            fgmask = cv2.medianBlur(fgmask, 7)
             #cv2.imshow("fgmask", fgmask)
 
             
             #########
-            # Step 2: morpology
+            # Step 2: morphology
             #########
-            fgmask = cv2.medianBlur(fgmask, 7)
             kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
             closed = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, kernel)
             closed = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
@@ -284,8 +284,6 @@ class App:
                 p0 = np.float32([tr[-1] for tr in self.tracks]).reshape(-1, 1, 2)
                 p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, None, **lk_params)
                 p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, None, **lk_params)
-                #p1, st, err = cv2.calcOpticalFlowPyrLK(img0, img1, p0, self.prevHullMask, **lk_params)
-                #p0r, st, err = cv2.calcOpticalFlowPyrLK(img1, img0, p1, hullMask, **lk_params)
                 d = abs(p0-p0r).reshape(-1, 2).max(-1)
                 good = d < 1
                 
@@ -300,7 +298,6 @@ class App:
                     cv2.circle(vis, (x, y), 2, (0, 255, 0), -1)
                 self.tracks = new_tracks
                 cv2.polylines(vis, [np.int32(tr) for tr in self.tracks], False, (0, 255, 0))
-
 
             #########
             # Step 5(before step4 to ): find goodFeatures 
