@@ -78,9 +78,6 @@ color = [(255,0,0),
          (178,34,34),
          (220,20,60),
          (255,0,0),
-         (255,99,71),
-         (255,127,80),
-         (205,92,92),
          (240,128,128),
          (233,150,122),
          (250,128,114),
@@ -131,7 +128,7 @@ color = [(255,0,0),
          (30,144,255),
          (173,216,230),
          (135,206,235),
-         (135,206,250)]
+         (0,0,0)]
 
 
 class App:
@@ -155,6 +152,11 @@ class App:
 
         self.containsEnoughMotion = False
         self.detected  = False
+
+        self.prevHulls = []
+        self.prevHullMask = 0
+        self.prevCenters = []
+        self.prevHullLabels = []
 
     def run(self):
         
@@ -210,42 +212,90 @@ class App:
 
             # filter contours
             minLength = 2
-            minArea = 20
+            minArea = 2
             new_contours=[]
             for index, c in enumerate(contours):
                 if len(c) > minLength and cv2.contourArea(c) > minArea: # and hierarchy[index] is not None:
                     new_contours.append(c)
             contours = new_contours
 
-            # get contour mask in hull way
+            # get hulls
             hulls = []
-            contourMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
+            hullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
             for contour in contours:
                 hull = cv2.convexHull(contour)
                 hulls.append(hull)
-            cv2.drawContours( contourMask, hulls, -1, (255,255,255), 1)
+            cv2.drawContours( hullMask, hulls, -1, (255,255,255), -1)
              
             # get centers of contours
             centers = []
-            for contour in contours:
-                M = cv2.moments(contour)
+            for hull in hulls:
+                M = cv2.moments(hull)
                 cx = int(M['m10']/M['m00'])
                 cy = int(M['m01']/M['m00'])
                 centers.append((cx, cy))
 
+            '''
             maxLength = 0
             maxLength_index = 0
             for i in range(0, len(contours)):
                 if len(contours[i]) > maxLength:
                     maxLength = len(contours[i])
                     maxLength_index = i
+            '''
+           
+            # label hulls
+            hullLables = [-1 for i in range(len(hulls))]
+            if len(self.prevHulls) == 0:
+                hullLables = [i for i in range(len(hulls))]
+            else:
+                for index, hull in enumerate(hulls):
+                    cx = centers[index][0]
+                    cy = centers[index][1]
+                    if self.prevHullMask[cy][cx][0] != 0:
+                        # find corresponding hull
+                        minDist = 10000
+                        prevIndex = 0
+
+                        for i, c in enumerate(self.prevCenters):
+                            dist = abs(int(c[0]) - int(cx)) + abs(int(c[1]) - int(cy))
+                            if dist < minDist:
+                                minDist = dist
+                                prevIndex = i
+                        hullLables[index] = self.prevHullLabels[prevIndex]
+                    else:
+                        label = 0
+                        while True:
+                            if label in self.prevHullLabels or label in hullLables:
+                                label = label + 1
+                            else:
+                                hullLables[index] = label
+                                break
+          
+            #print("hullLables", hullLables)
+            for i, hull in enumerate(hulls):
+                cv2.drawContours( vis, [hull], -1, color[hullLables[i]%len(color)], 2)
+           
+           
+            '''
+            prevHullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
+            if len(self.prevHulls) != 0:
+                cv2.drawContours( prevHullMask, self.prevHulls, -1, (255, 255, 255), -1)
+                for i, c in enumerate(centers):
+                    cv2.drawContours(prevHullMask, [hulls[i]], 0, color[hullLables[i]], 2)
+                    cv2.circle(prevHullMask, c, 1, color[hullLables[i]], 2)
+                    draw_str(prevHullMask, c, "%d"%hullLables[i], color[hullLables[i]])
+                for i, c in enumerate(self.prevCenters):
+                    draw_str(prevHullMask, (c[0]+10, c[1]), "%d"%self.prevHullLabels[i])
+            cv2.imshow("hulls", prevHullMask)
+            '''
+
 
             #cv2.imshow('mask', fgmask)
             #cv2.imshow("close", closed)
-            #cv2.imshow("contour", contourMask)
-
-            cv2.drawContours( vis, hulls, -1, (128,0,255), 2)
-            #cv2.drawContours( vis, contours, maxLength_index, (128,0,255), 2)
+            #cv2.imshow("contour", hullMask)
+            
+            #cv2.drawContours( vis, hulls, -1, (128,0,255), 2)
             #cv2.drawContours( vis, contours, -1, (255,255,255), 1)
             #cv2.drawContours( vis, new_contours, -1, (255,0,255), 1)
             
@@ -253,7 +303,12 @@ class App:
 
             self.frame_idx += 1
             self.prev_gray = frame_gray
-       
+      
+            self.prevHulls = hulls
+            self.prevHullMask = hullMask
+            self.prevHullLabels = hullLables
+            self.prevCenters = centers
+
             self.ch = 0xFF & cv2.waitKey(delayTime) # 20
             ch = self.ch
             # Esc
@@ -265,9 +320,15 @@ class App:
             # fast
             if ch == ord('f'):
                 delayTime = 20
+            if ch == ord('1'):
+                delayTime = 100
+            if ch == ord('2'):
+                delayTime = 300  
+            if ch == ord('3'):
+                delayTime = 600
             # slow
             if ch == ord('s'):
-                delayTime = 500
+                delayTime = 1000
             # replay
             if ch == ord('r'):
                 self.cam = video.create_capture(self.video_src)
@@ -284,6 +345,8 @@ class App:
 
 def getVideofiles(directory):
     import os
+    if directory == 0:
+        return [str(0)]
     if not os.path.exists(directory):
         print("file or directory not exists")
     else:
