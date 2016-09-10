@@ -31,6 +31,9 @@ import os
 
 _CALIBRATE = False 
 _VALID = not _CALIBRATE
+_GENERATE_IMG = False
+sampleCntP = 0
+sampleCntN = 0
 
 def draw_detections(img, rects, thickness = 1):
     for x, y, w, h in rects:
@@ -155,8 +158,8 @@ class App:
             ret, motion_mask = cv2.threshold(gray_diff, self.thres, 1, cv2.THRESH_BINARY)
             timestamp = clock()
             vis = frame.copy()
-
-
+            
+            print(timestamp)
             cv2.motempl.updateMotionHistory(motion_mask, mhi, timestamp, MHI_DURATION)
             mg_mask, mg_orient = cv2.motempl.calcMotionGradient( mhi, MAX_TIME_DELTA, MIN_TIME_DELTA, apertureSize=5 )
             seg_mask, seg_bounds = cv2.motempl.segmentMotion( mhi, timestamp, MAX_TIME_DELTA )
@@ -191,6 +194,18 @@ class App:
                         sampleLabel = sample[2]
                         if sampleLabel == 1:
                             draw_motion_comp(vis, sampleRect, 0, (255,0,0))
+                        
+                        # save sample img
+                        if _GENERATE_IMG:
+                            roi = mei[sampleRect[1]:sampleRect[1]+sampleRect[3], sampleRect[0]:sampleRect[0]+sampleRect[2]]
+                            global sampleCntP
+                            global sampleCntN
+                            if sampleLabel == 1:
+                                cv2.imwrite(self.videoDir+"/positive/%7d.jpg"%sampleCntP, roi)
+                                sampleCntP = sampleCntP + 1
+                            else:
+                                cv2.imwrite(self.videoDir+"/negative/%7d.jpg"%sampleCntN, roi)
+                                sampleCntN = sampleCntN + 1
 
             # show result
             #cv2.imshow("motion energy image", mei)

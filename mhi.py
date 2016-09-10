@@ -203,7 +203,7 @@ def getVideofiles(directory):
             files = os.listdir(directory)
             videos = []
             for f in files:
-                if f.find("mp4") > 0 and f.find("src") < 0:
+                if f.find("mp4") > 0 and f.find("src") < 0 and f.find("txt") < 0:
                     videos.append(directory+"/"+f)
             return videos
 
