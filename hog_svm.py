@@ -43,10 +43,6 @@ class SVM(StatModel):
         self.model.setKernel(cv2.ml.SVM_RBF)
         self.model.setType(cv2.ml.SVM_C_SVC)
 
-    '''
-    sample: 
-    responses:
-    '''
     def train(self, samples, responses):
         self.model.train(samples, cv2.ml.ROW_SAMPLE, responses)
 
@@ -164,7 +160,8 @@ def train(model, trainSet):
     print('training SVM...')
     model.train(trainSet["features"], trainSet["label"])
     print('saving SVM as "mhi_svm.dat"...')
-    model.save('/home/duino/Videos/3/mhi_svm.dat')
+    model.save('mhi_svm.dat')
+
 
 def valid(model, validSet):
     """ valid svm model on the validSet
@@ -177,14 +174,17 @@ def valid(model, validSet):
     err = (validSet["label"] != resp).mean()
     print('error: %.2f %%' % (err*100))
 
-
-if __name__ == '__main__':
-
+def main():
     import sys
- 
     sampleSet = constructSampleSet(sys.argv[1])
     trainSet, validSet = splitSampleSet(sampleSet)
     model = SVM(C=2.67, gamma=5.383)
     train(model, trainSet)
     valid(model, validSet)
+    
+    return model
+    
+
+if __name__ == '__main__':
+    main()
 

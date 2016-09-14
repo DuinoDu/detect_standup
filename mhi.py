@@ -27,6 +27,8 @@ import cv2
 import video
 from common import anorm2, draw_str
 from time import clock
+from hog_svm import StatModel, SVM
+
 
 def draw_detections(img, rects, thickness = 1):
     for x, y, w, h in rects:
@@ -66,13 +68,16 @@ def draw_motion_comp(vis, (x, y, w, h), angle, color):
     #cv2.circle(vis, (cx, cy), r, color, 3)
     #cv2.line(vis, (cx, cy), (int(cx+np.cos(angle)*r), int(cy+np.sin(angle)*r)), color, 3)
 
+svm = 0
 
 class App:
     def __init__(self, video_src):
         self.video_src = video_src
         self.ch = 0
         self.cam = video.create_capture(self.video_src)
-        
+        self.hogConf = "hog.xml"
+        self.svmConf = "mhi_svm.dat"
+        self.svm = svm
         # add other vars
 
     def run(self):
@@ -91,7 +96,10 @@ class App:
         mhi = np.zeros((h,w), np.float32)
         hsv = np.zeros((h,w,3), np.uint8)
         hsv[:,:,1] = 255
-        
+       
+        hog = cv2.HOGDescriptor(self.hogConf)
+        normalSize = (90, 66)
+
         while True:
             # read frame
             ret, frame = self.cam.read()
@@ -123,7 +131,7 @@ class App:
             for i, rect in enumerate([(0,0,w,h)] + list(seg_bounds)):
                 x, y, rw, rh = rect
                 area = rw * rh
-                if area < 64*2:
+                if area < 64*2 or rw < 16 or rh < 16:
                     continue
                 silh_roi    = motion_mask   [y:y+rh, x:x+rw]
                 orient_roi  = mg_orient     [y:y+rh, x:x+rw]
@@ -133,10 +141,20 @@ class App:
                     continue
                 angle = cv2.motempl.calcGlobalOrientation(orient_roi, mask_roi, mhi_roi, timestamp, MHI_DURATION)
 
-                color = ((255,0,0), (0,0,255))[area > 600]
-                #if area > 600:
+                
+                # compute hog
+                mei_roi = mei[y:y+rh, x:x+rw] 
+                mei_roi = cv2.resize(mei_roi, normalSize)
+                print(mei_roi.shape)
+                features = hog.compute(mei_roi, hog.blockStride, hog.cellSize, ((0,0),) )
+                
+                # classify using svm
+                print(np.array(features).shape, np.array(features).dtype)
+                result = self.svm.predict(np.array(features))
+                print(result)
+               
+                color = ((255,0,0), (0,0,255))[result]
                 draw_motion_comp(vis, rect, angle, color)
-                    #draw_motion_comp(mhi, rect, angle, color)
 
             # show result
             #cv2.imshow("motion energy image", mei)
@@ -228,4 +246,9 @@ def main():
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':
+
+    import hog_svm as model
+    global svm 
+    svm = model.main()
+
     main()
