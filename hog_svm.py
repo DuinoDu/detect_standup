@@ -26,6 +26,35 @@ import cv2
 
 _DEBUG = False
 
+##################
+# Classify Model #
+##################
+class StatModel(object):
+    def load(self, fn):
+        self.model.load(fn)  # Known bug: https://github.com/opencv/opencv/issues/4969
+    def save(self, fn):
+        self.model.save(fn)
+
+class SVM(StatModel):
+    def __init__(self, C = 1, gamma = 0.5):
+        self.model = cv2.ml.SVM_create()
+        self.model.setGamma(gamma)
+        self.model.setC(C)
+        self.model.setKernel(cv2.ml.SVM_RBF)
+        self.model.setType(cv2.ml.SVM_C_SVC)
+
+    '''
+    sample: 
+    responses:
+    '''
+    def train(self, samples, responses):
+        self.model.train(samples, cv2.ml.ROW_SAMPLE, responses)
+
+    def predict(self, samples):
+        return self.model.predict(samples)[1].ravel()
+
+
+
 def constructSampleSet(path):
     """ construct sample set from image sample
 
@@ -78,10 +107,15 @@ def constructSampleSet(path):
             sampleSet['features'].append(features)
             sampleSet['label'].append(0)
 
+        
+        sampleSet['features'] = np.array(sampleSet['features'])
+        sampleSet['label'] = np.array(sampleSet['label'])
+
         #output = open( path+'/sampleSet.pkl', 'wb')
         #pickle.dump(sampleSet, output)
         #output.close()
         #print("Save to sampleSet.pkl")
+
     else:
         print("Read from sampleSet.pkl")
         dataFile = open( path+'/sampleSet.pkl', 'rb')
@@ -100,27 +134,48 @@ def splitSampleSet(sampleSet):
     :returns: trainSet, validSet
 
     """
-    pass 
+    ratio = 0.7
+    pSum = len([i for i in sampleSet['label'] if i == 1]) 
+    nSum = len([i for i in sampleSet['label'] if i == 0]) 
+    pTrainSum = int(pSum*ratio)
+    nTrainSum = int(nSum*ratio)
+
+    trainSet = {'features':[], 'label':[]}
+    validSet = {'features':[], 'label':[]}
+    
+    [a,b,c,d] = np.split(sampleSet["features"], [pTrainSum, pSum, pSum + nTrainSum])
+    trainSet["features"] = np.concatenate((a,c))
+    validSet["features"] = np.concatenate((b,d))
+    [a,b,c,d] = np.split(sampleSet["label"], [pTrainSum, pSum, pSum + nTrainSum])
+    trainSet["label"] = np.concatenate((a,c))
+    validSet["label"] = np.concatenate((b,d))
+    
+    return trainSet, validSet
 
 
-def train(trainSet):
+
+def train(model, trainSet):
     """ train svm on the trainSet
 
-    :trainSet: [features, label]
+    :trainSet: [features, label], features and label should be np.array
     :returns: None
 
     """
-    pass
+    print('training SVM...')
+    model.train(trainSet["features"], trainSet["label"])
+    print('saving SVM as "mhi_svm.dat"...')
+    model.save('/home/duino/Videos/3/mhi_svm.dat')
 
-
-def valid(validSet):
+def valid(model, validSet):
     """ valid svm model on the validSet
 
     :validSet: [features, label]
     :returns: None
 
     """
-    pass
+    resp = model.predict(validSet["features"])
+    err = (validSet["label"] != resp).mean()
+    print('error: %.2f %%' % (err*100))
 
 
 if __name__ == '__main__':
@@ -128,7 +183,8 @@ if __name__ == '__main__':
     import sys
  
     sampleSet = constructSampleSet(sys.argv[1])
-    #trainSet, validSet = splitSampleSet(sampleSet)
-    #train(trainSet)
-    #valid(validSet)
+    trainSet, validSet = splitSampleSet(sampleSet)
+    model = SVM(C=2.67, gamma=5.383)
+    train(model, trainSet)
+    valid(model, validSet)
 
