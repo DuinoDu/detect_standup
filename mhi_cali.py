@@ -31,7 +31,7 @@ import os
 
 _CALIBRATE = False 
 _VALID = not _CALIBRATE
-_GENERATE_IMG = False
+_GENERATE_IMG = True
 sampleCntP = 0
 sampleCntN = 0
 
@@ -201,10 +201,10 @@ class App:
                             global sampleCntP
                             global sampleCntN
                             if sampleLabel == 1:
-                                cv2.imwrite(self.videoDir+"/positive/%7d.jpg"%sampleCntP, roi)
+                                cv2.imwrite(self.videoDir+"/positive/%d.jpg"%sampleCntP, roi)
                                 sampleCntP = sampleCntP + 1
                             else:
-                                cv2.imwrite(self.videoDir+"/negative/%7d.jpg"%sampleCntN, roi)
+                                cv2.imwrite(self.videoDir+"/negative/%d.jpg"%sampleCntN, roi)
                                 sampleCntN = sampleCntN + 1
 
             # show result

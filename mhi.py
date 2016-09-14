@@ -113,13 +113,11 @@ class App:
             timestamp = clock()
             vis = frame.copy()
 
-
             cv2.motempl.updateMotionHistory(motion_mask, mhi, timestamp, MHI_DURATION)
             mg_mask, mg_orient = cv2.motempl.calcMotionGradient( mhi, MAX_TIME_DELTA, MIN_TIME_DELTA, apertureSize=5 )
             seg_mask, seg_bounds = cv2.motempl.segmentMotion( mhi, timestamp, MAX_TIME_DELTA )
             mei = np.uint8(np.clip((mhi-(timestamp-MHI_DURATION)) / MHI_DURATION, 0, 1)*255)
-            
-
+           
             maxArea = 64*2
             indexArea = 0
             for i, rect in enumerate([(0,0,w,h)] + list(seg_bounds)):
@@ -136,12 +134,13 @@ class App:
                 angle = cv2.motempl.calcGlobalOrientation(orient_roi, mask_roi, mhi_roi, timestamp, MHI_DURATION)
 
                 color = ((255,0,0), (0,0,255))[area > 600]
-                if area > 600:
-                    draw_motion_comp(vis, rect, angle, color)
+                #if area > 600:
+                draw_motion_comp(vis, rect, angle, color)
+                    #draw_motion_comp(mhi, rect, angle, color)
 
             # show result
             #cv2.imshow("motion energy image", mei)
-            #cv2.imshow("motion history image", mhi)
+            cv2.imshow("motion history image", mhi)
             cv2.imshow("vis", vis)
 
             prev_frame = frame.copy()
