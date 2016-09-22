@@ -68,7 +68,7 @@ def draw_motion_comp(vis, (x, y, w, h), angle, color):
     #cv2.circle(vis, (cx, cy), r, color, 3)
     #cv2.line(vis, (cx, cy), (int(cx+np.cos(angle)*r), int(cy+np.sin(angle)*r)), color, 3)
 
-svm = 0
+#svm = 0
 
 class App:
     def __init__(self, video_src):
@@ -77,7 +77,7 @@ class App:
         self.cam = video.create_capture(self.video_src)
         self.hogConf = "hog.xml"
         self.svmConf = "mhi_svm.dat"
-        self.svm = svm
+        #self.svm = svm
         # add other vars
 
     def run(self):
@@ -99,6 +99,8 @@ class App:
        
         hog = cv2.HOGDescriptor(self.hogConf)
         normalSize = (90, 66)
+        svm = SVM() #cv2.ml.SVM_load(self.svmConf)
+        svm.load(self.svmConf)
 
         while True:
             # read frame
@@ -145,15 +147,16 @@ class App:
                 # compute hog
                 mei_roi = mei[y:y+rh, x:x+rw] 
                 mei_roi = cv2.resize(mei_roi, normalSize)
-                print(mei_roi.shape)
+                #print(mei_roi.shape)
                 features = hog.compute(mei_roi, hog.blockStride, hog.cellSize, ((0,0),) )
                 
                 # classify using svm
-                print(np.array(features).shape, np.array(features).dtype)
-                result = self.svm.predict(np.array(features))
+                f = np.array(features)
+                f = np.array([f])
+                result = svm.predict(f)
                 print(result)
                
-                color = ((255,0,0), (0,0,255))[result]
+                color = ((255,0,0), (0,0,255))[int(result[0])]
                 draw_motion_comp(vis, rect, angle, color)
 
             # show result
@@ -247,8 +250,8 @@ def main():
 
 if __name__ == '__main__':
 
-    import hog_svm as model
-    global svm 
-    svm = model.main()
+    #import hog_svm as model
+    #global svm 
+    #svm = model.main()
 
     main()

@@ -20,18 +20,20 @@ How?
 # Python 2/3 compatibility
 from __future__ import print_function
 import os
+import sys
 import pickle
 import numpy as np
 import cv2
 
 _DEBUG = False
+_TEST = False
 
 ##################
 # Classify Model #
 ##################
 class StatModel(object):
-    def load(self, fn):
-        self.model.load(fn)  # Known bug: https://github.com/opencv/opencv/issues/4969
+    #def load(self, fn):
+    #    self.model.load(fn)  # Known bug: https://github.com/opencv/opencv/issues/4969
     def save(self, fn):
         self.model.save(fn)
 
@@ -42,6 +44,9 @@ class SVM(StatModel):
         self.model.setC(C)
         self.model.setKernel(cv2.ml.SVM_RBF)
         self.model.setType(cv2.ml.SVM_C_SVC)
+
+    def load(self, filename):
+        self.model = cv2.ml.SVM_load(filename)
 
     def train(self, samples, responses):
         self.model.train(samples, cv2.ml.ROW_SAMPLE, responses)
@@ -99,7 +104,7 @@ def constructSampleSet(path):
                 print(img.shape)
                 cv2.imwrite(path + '/normal/n_'+s, img)
 
-            features = hog.compute(img, hog.blockStride, hog.cellSize, ((0,0),) )
+            features = hog.compute(img, hog.blockStride, hog.cellSize, ((0,0),) ) # features is np.array, (xx, 1)
             sampleSet['features'].append(features)
             sampleSet['label'].append(0)
 
@@ -126,7 +131,7 @@ def constructSampleSet(path):
 def splitSampleSet(sampleSet):
     """ divide sample set into train set and valid set.
 
-    :sampleSet: [features, label]
+    :sampleSet: {features:[], label:[]}, [] is np.array
     :returns: trainSet, validSet
 
     """
@@ -174,17 +179,42 @@ def valid(model, validSet):
     err = (validSet["label"] != resp).mean()
     print('error: %.2f %%' % (err*100))
 
+
+def classify(imgPath):
+    """Given an image, judge if its label
+
+    :imgPath: imgPath
+    :returns: label
+
+    """
+    img = cv2.imread(imgPath, 0)
+    normalSize = (90, 66)
+    img = cv2.resize(img, normalSize)
+    hog = cv2.HOGDescriptor('hog.xml')
+    features = hog.compute(img, hog.blockStride, hog.cellSize, ((0,0),) ) # why (0,0)?? what does location mean?
+    model = SVM()
+    model.load("/home/duino/iactive/mhi_svm.dat")
+    results = model.predict(np.array([features]))
+    print("Classify result for",imgPath,": ", results[0])
+
+
 def main():
-    import sys
     sampleSet = constructSampleSet(sys.argv[1])
     trainSet, validSet = splitSampleSet(sampleSet)
     model = SVM(C=2.67, gamma=5.383)
-    train(model, trainSet)
+    if _TEST:
+        print("Load svm model from file.")
+        model.load("/home/duino/iactive/mhi_svm.dat")
+    else:
+        train(model, trainSet)
     valid(model, validSet)
     
     return model
     
 
 if __name__ == '__main__':
-    main()
+    if sys.argv[1].find("jpg") != -1:
+        classify(sys.argv[1])
+    else:
+        main()
 
