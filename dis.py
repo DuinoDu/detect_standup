@@ -78,6 +78,22 @@ def draw_flow(img, flow, step=10):
         cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
     return vis
 
+
+def draw_flow_roi(img, flow,  roi, step=10):
+    h, w = roi[3], roi[2] 
+    y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
+    fx, fy = flow[y,x].T
+    
+    y, x = np.mgrid[roi[1]+step/2 : roi[1]+h : step, roi[0]+step/2 : roi[0]+w : step].reshape(2,-1).astype(int)
+    lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
+    lines = np.int32(lines + 0.5)
+    vis = img #cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    cv2.polylines(vis, lines, 0, (0, 255, 0))
+    for (x1, y1), (x2, y2) in lines:
+        cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
+    return vis
+
+
 def warp_flow(img, flow):
     h, w = flow.shape[:2]
     flow = -flow
@@ -173,6 +189,8 @@ class App:
         self.containsEnoughMotion = False
         self.detected  = False
 
+        self.fy_threshold = -0.5
+
         self.prevHulls = []
         self.prevHullMask = 0
         self.prevCenters = []
@@ -224,8 +242,8 @@ class App:
             # Step 1: BackgroundSubtractor
             #########
             fgmask = self.fgbg.apply(frame_gray_blur, 0.7)
-            fgmask = cv2.medianBlur(fgmask, 7)
-            #cv2.imshow("fgmask", fgmask)
+            #fgmask = cv2.medianBlur(fgmask, 7)
+            cv2.imshow("fgmask", fgmask)
 
             
             #########
@@ -307,25 +325,51 @@ class App:
                                 break
 
             ########
-            # conpute optflow using DIS
+            # conpute optflow for each hulls
             ########
-            if flow is not None and use_temporal_propagation:
-                #warp previous flow to get an initial approximation for the current flow:
-                flow = inst.calc(self.prev_gray, frame_gray, warp_flow(flow,flow))
-            elif self.prev_gray is not None:
-                flow = inst.calc(self.prev_gray, frame_gray, None)
+            flows = []
+            rois = []
+            if self.prev_gray is not None:
+                whole_flow = inst.calc(self.prev_gray, frame_gray, None) # if use only roi for compute dense optflow?
+                for h in hulls:
+                    x, y, w, h = cv2.boundingRect(h)
+                    rois.append((x,y,w,h))
+                    flows.append(whole_flow[y:y+h, x:x+w])  
 
+            #if flow is not None and use_temporal_propagation:
+                #warp previous flow to get an initial approximation for the current flow:
+            #    flow = inst.calc(self.prev_gray, frame_gray, warp_flow(flow,flow))
+            #elif self.prev_gray is not None:
+            #    flow = inst.calc(self.prev_gray, frame_gray, None)
+
+
+
+            ########
+            # classify using optflow
+            ########
+            flags = []
+            for index, flow in enumerate(flows):
+                fx = np.mean(flow[:,:,0])
+                fy = np.mean(flow[:,:,1])
+                flags.append(fy < self.fy_threshold)
+                #if fy < -1.0:
+                #draw_str(vis, (rois[index][0], rois[index][1]), "%.2f"%fx, (255,0,0))
+                #draw_str(vis, (rois[index][0], rois[index][1]-10), "%.2f"%fy, (0,255,0))
 
             ########
             # Draw result
             ########
             for i, hull in enumerate(hulls):
-                cv2.drawContours( vis, [hull], -1, color[hullLables[i]%len(color)], 2)
+                if self.prev_gray is not None:
+                    cv2.drawContours( vis, [hull], -1, color[flags[i]], 2)
+            
+            #for i, hull in enumerate(hulls):
+            #    cv2.drawContours( vis, [hull], -1, color[hullLables[i]%len(color)], 2)
           
-            if flow is not None:
-                flow = flow * 5
-                vis = draw_flow(vis, flow)
-           
+            #for index, flow in enumerate(flows):
+            #    flow = flow * 5
+            #    vis = draw_flow_roi(vis, flow, rois[index])
+
             '''
             prevHullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
             if len(self.prevHulls) != 0:

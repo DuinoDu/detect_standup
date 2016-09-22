@@ -68,8 +68,6 @@ def draw_motion_comp(vis, (x, y, w, h), angle, color):
     #cv2.circle(vis, (cx, cy), r, color, 3)
     #cv2.line(vis, (cx, cy), (int(cx+np.cos(angle)*r), int(cy+np.sin(angle)*r)), color, 3)
 
-#svm = 0
-
 class App:
     def __init__(self, video_src):
         self.video_src = video_src
@@ -99,7 +97,7 @@ class App:
        
         hog = cv2.HOGDescriptor(self.hogConf)
         normalSize = (90, 66)
-        svm = SVM() #cv2.ml.SVM_load(self.svmConf)
+        svm = SVM() 
         svm.load(self.svmConf)
 
         while True:

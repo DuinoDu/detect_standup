@@ -1,0 +1,19 @@
+digraph G{
+    input -> mhi[color=red]
+    mhi -> hog[color=red]
+    hog -> svm[color=red]
+    svm -> output
+
+    input[fontsize=18 style=filled, shape=box color=yellow label = "input video"];
+    mhi[fontsize=18 style=filled shape=box color=yellow];
+    hog[fontsize=18 style=filled shape=box color=yellow];
+    svm[fontsize=18 style=filled shape=box color=yellow];
+    output[fontsize=18 style=filled, shape = box, color=yellow, label = "output region"]
+
+    mhi:e -> absdiff:w
+    subgraph 1 { 
+        absdiff:e -> threshold:w
+        threshold:e -> updateMotionHistory:w
+        updateMotionHistory:e -> segmentMotion:w
+    }
+}
