@@ -241,176 +241,40 @@ class App:
             frame = cv2.resize(frame, (frame.shape[1]/2, frame.shape[0]/2) )
             vis = frame.copy()
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
             #cv2.imshow("before blur", frame_gray)
-            frame_gray_blur = cv2.medianBlur(frame_gray, 7)
+            frame_gray = cv2.medianBlur(frame_gray, 7)
             #cv2.imshow("after blur", frame_gray)
             
-            
-            #########
-            # Step 1: BackgroundSubtractor
-            #########
-            fgmask = self.fgbg.apply(frame_gray_blur, 0.7)
-            #fgmask = cv2.medianBlur(fgmask, 7)
-            cv2.imshow("fgmask", fgmask)
-
-            
-            #########
-            # Step 2: morphology
-            #########
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
-            closed = cv2.morphologyEx(fgmask, cv2.MORPH_CLOSE, kernel)
-            closed = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel)
-
-            
-            #########
-            # Step 3: contour and hull
-            #########
-            _, contours0, hierarchy = cv2.findContours( closed.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]    
-
-            # filter contours
-            minLength = 2
-            minArea = 2
-            new_contours=[]
-            for index, c in enumerate(contours):
-                if len(c) > minLength and cv2.contourArea(c) > minArea: # and hierarchy[index] is not None:
-                    new_contours.append(c)
-            contours = new_contours
-
-            # get hulls
-            hulls = []
-            for contour in contours:
-                hull = cv2.convexHull(contour)
-                hulls.append(hull)
-            
-
-            # merge nest hulls
-            hullMask = np.zeros((closed.shape[0], closed.shape[1], 1), np.uint8)
-            cv2.drawContours( hullMask, hulls, -1, 255, 1)
-            _, contours1, hierarchy = cv2.findContours( hullMask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            hulls = []
-            for contour in contours1:
-                hull = cv2.convexHull(contour)
-                hulls.append(hull)
-            cv2.drawContours( hullMask, hulls, -1, 255, -1)
-            #cv2.imshow("editHull", hullMask)
-            
-
-            # get centers of contours
-            centers = []
-            for hull in hulls:
-                M = cv2.moments(hull)
-                cx = int(M['m10']/M['m00'])
-                cy = int(M['m01']/M['m00'])
-                centers.append((cx, cy))
            
-            # label hulls
-            hullLables = [-1 for i in range(len(hulls))]
-            if len(self.prevHulls) == 0:
-                hullLables = [i for i in range(len(hulls))]
-            else:
-                for index, hull in enumerate(hulls):
-                    cx = centers[index][0]
-                    cy = centers[index][1]
-                    if self.prevHullMask[cy][cx] != 0:
-                        # find corresponding hull
-                        minDist = 10000
-                        prevIndex = 0
-
-                        for i, c in enumerate(self.prevCenters):
-                            dist = abs(int(c[0]) - int(cx)) + abs(int(c[1]) - int(cy))
-                            if dist < minDist:
-                                minDist = dist
-                                prevIndex = i
-                        hullLables[index] = self.prevHullLabels[prevIndex]
-                    else:
-                        label = 0
-                        while True:
-                            if label in self.prevHullLabels or label in hullLables:
-                                label = label + 1
-                            else:
-                                hullLables[index] = label
-                                break
-
-            ########
-            # conpute optflow for each hull
-            ########
-            flows = []
-            rois = []
+            
+            #########
+            # Step 1: cals dense optflow
+            #########
             if self.prev_gray is not None:
-                whole_flow = inst.calc(self.prev_gray, frame_gray, None) # if use only roi for compute dense optflow?
-                vis = draw_flow(vis, whole_flow)
-                
-                for h in hulls:
-                    x, y, w, h = cv2.boundingRect(h)
-                    rois.append((x,y,w,h))
-                    flows.append(whole_flow[y:y+h, x:x+w])  
+                flow = inst.calc(self.prev_gray, frame_gray, None) 
+                vis = draw_flow(vis, flow)
 
             #if flow is not None and use_temporal_propagation:
-                #warp previous flow to get an initial approximation for the current flow:
+            #   #warp previous flow to get an initial approximation for the current flow:
             #    flow = inst.calc(self.prev_gray, frame_gray, warp_flow(flow,flow))
             #elif self.prev_gray is not None:
             #    flow = inst.calc(self.prev_gray, frame_gray, None)
 
 
-            ########
-            # classify using optflow
-            ########
-            flags = []
-            for index, flow in enumerate(flows):
-                fx = np.mean(flow[:,:,0])
-                fy = np.mean(flow[:,:,1])
-                flags.append(fy < self.fy_threshold)
-                #if fy < -1.0:
-                #draw_str(vis, (rois[index][0], rois[index][1]), "%.2f"%fx, (255,0,0))
-                #draw_str(vis, (rois[index][0], rois[index][1]-10), "%.2f"%fy, (0,255,0))
-
-            ########
-            # Draw result
-            ########
-            for i, hull in enumerate(hulls):
-                if self.prev_gray is not None:
-                    cv2.drawContours( vis, [hull], -1, color[flags[i]], 2)
             
-            #for i, hull in enumerate(hulls):
-            #    cv2.drawContours( vis, [hull], -1, color[hullLables[i]%len(color)], 2)
-          
-            for index, flow in enumerate(flows):
-                flow = flow * 5
-                #vis = draw_flow_roi(vis, flow, rois[index])
 
-            '''
-            prevHullMask = np.zeros((closed.shape[0], closed.shape[1], 3), np.uint8)
-            if len(self.prevHulls) != 0:
-                cv2.drawContours( prevHullMask, self.prevHulls, -1, (255, 255, 255), -1)
-                for i, c in enumerate(centers):
-                    cv2.drawContours(prevHullMask, [hulls[i]], 0, color[hullLables[i]], 2)
-                    cv2.circle(prevHullMask, c, 1, color[hullLables[i]], 2)
-                    draw_str(prevHullMask, c, "%d"%hullLables[i], color[hullLables[i]])
-                for i, c in enumerate(self.prevCenters):
-                    draw_str(prevHullMask, (c[0]+10, c[1]), "%d"%self.prevHullLabels[i])
-            cv2.imshow("hulls", prevHullMask)
-            '''
-
-
-            #cv2.imshow('mask', fgmask)
-            #cv2.imshow("close", closed)
-            #cv2.imshow("contour", hullMask)
+            #########
+            # Step 2: get region
+            #########
             
-            #cv2.drawContours( vis, hulls, -1, (128,0,255), 2)
-            #cv2.drawContours( vis, contours, -1, (255,255,255), 1)
-            #cv2.drawContours( vis, new_contours, -1, (255,0,255), 1)
+        
             
-            cv2.imshow('lk_track', vis)
 
+
+            cv2.imshow('test', vis)
             self.frame_idx += 1
             self.prev_gray = frame_gray
       
-            self.prevHulls = hulls
-            self.prevHullMask = hullMask
-            self.prevHullLabels = hullLables
-            self.prevCenters = centers
 
             self.ch = 0xFF & cv2.waitKey(delayTime) # 20
             ch = self.ch
