@@ -205,7 +205,6 @@ class App:
         self.fy_threshold = -0.5
 
         self.prevCenters = []
-        self.prevContours = []
         self.prevContourLabels = []
         self.prevContourMask = 0
         self.prevLabelHist = []
