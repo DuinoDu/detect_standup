@@ -70,6 +70,10 @@ def draw_flow(img, flow, step=10):
     h, w = img.shape[:2]
     y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
     fx, fy = flow[y,x].T
+
+    print(np.mean(fx))
+    print(np.mean(fy))
+
     lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
     lines = np.int32(lines + 0.5)
     vis = img #cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
@@ -77,7 +81,7 @@ def draw_flow(img, flow, step=10):
         #cv2.polylines(vis, lines, 0, (0, 255, 0))
         if l[0][1] < l[1][1]:
             cv2.polylines(vis, [l], 0, (0, 255, 0))
-        elif l[0][1] < l[1][1]:
+        elif l[0][1] > l[1][1]:
             cv2.polylines(vis, [l], 0, (0, 0, 255))
 
     for (x1, y1), (x2, y2) in lines:
@@ -248,7 +252,7 @@ class App:
            
             
             #########
-            # Step 1: cals dense optflow
+            # Step 1: calc dense optflow
             #########
             if self.prev_gray is not None:
                 flow = inst.calc(self.prev_gray, frame_gray, None) 
