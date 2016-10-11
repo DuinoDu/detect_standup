@@ -71,14 +71,14 @@ def draw_flow(img, flow, step=10):
     y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1).astype(int)
     fx, fy = flow[y,x].T
 
-    print(np.mean(fx))
-    print(np.mean(fy))
-
     lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
+    
     lines = np.int32(lines + 0.5)
     vis = img #cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     for l in lines:
         #cv2.polylines(vis, lines, 0, (0, 255, 0))
+        # since "lines = np.int32(lines+0.5)" 
+        # most values are zero
         if l[0][1] < l[1][1]:
             cv2.polylines(vis, [l], 0, (0, 255, 0))
         elif l[0][1] > l[1][1]:
@@ -204,10 +204,11 @@ class App:
 
         self.fy_threshold = -0.5
 
-        self.prevHulls = []
-        self.prevHullMask = 0
         self.prevCenters = []
-        self.prevHullLabels = []
+        self.prevContours = []
+        self.prevContourLabels = []
+        self.prevContourMask = 0
+        self.prev2ContourMask = 0 
 
     def run(self):
         
@@ -264,21 +265,94 @@ class App:
             #elif self.prev_gray is not None:
             #    flow = inst.calc(self.prev_gray, frame_gray, None)
 
+                #########
+                # Step 2: get region
+                #########
+                #h, w = flow.shape[:2]
+                #scale = 10
+                #y, x = np.mgrid[0:h:scale, 0:w:scale].astype(int)
+                #fx, fy = flow[y,x].T
+                h, w = flow.shape[:2]
+                y, x = np.mgrid[0:h:1, 0:w:1].astype(int)
+                fx, fy = flow[y,x].T
+                fy = fy.T
+                _, fy_up = cv2.threshold(fy, 0.5, 255, cv2.THRESH_BINARY)
+                _, fy_down = cv2.threshold(fy, -0.5, 255, cv2.THRESH_BINARY_INV)
+                fy = fy_up + fy_down
 
-            
 
-            #########
-            # Step 2: get region
-            #########
-            
-        
-            
+                #########
+                # Step 3: get contours
+                #########
+                fy = np.uint8(fy)
+                _, contours0, hierarchy = cv2.findContours( fy.copy(), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]    
 
+                # filter contours
+                minLength = 2
+                minArea = 2
+                new_contours=[]
+                for index, c in enumerate(contours):
+                    if len(c) > minLength and cv2.contourArea(c) > minArea: # and hierarchy[index] is not None:
+                        new_contours.append(c)
+                contours = new_contours
+                #cv2.drawContours( vis, contours, -1, 255, 2)
+
+                # get centers of contours
+                centers = []
+                for c in contours:
+                    M = cv2.moments(c)
+                    cx = int(M['m10']/M['m00'])
+                    cy = int(M['m01']/M['m00'])
+                    centers.append((cx, cy))
+    
+                #########
+                # Step 4: label contours
+                #########
+
+                # init contourLabels, like [-1, -1, ..] or []
+                contourLabels = [-1 for i in range(len(contours))]
+
+                # if it is the first frame
+                if len(self.prevCenters) is 0: 
+                    contourLabels = [i for i in range(len(contours))]
+                else:
+                    for index, c in enumerate(contours):
+                        cx = centers[index][0]
+                        cy = centers[index][1]
+
+                        # if current contour has existed
+                        if self.prevContourMask[cy][cx] != 0 :
+                            # find corresponding hull
+                            minDist = 10000
+                            prevIndex = 0
+                            for i, c in enumerate(self.prevCenters):
+                                dist = abs(int(c[0]) - int(cx)) + abs(int(c[1]) - int(cy))
+                                if dist < minDist:
+                                    minDist = dist
+                                    prevIndex = i
+                            contourLabels[index] = self.prevContourLabels[prevIndex]
+
+                        # if the current contour appears for the first time
+                        else: 
+                            label = 0
+                            while True:
+                                if label in self.prevContourLabels or label in contourLabels:
+                                    label = label + 1
+                                else:
+                                    contourLabels[index] = label
+                                    break
+                self.prevCenters = centers
+                self.prevContourLabels = contourLabels
+                print(contourLabels)
+                self.prevContourMask = fy
+
+                for i, c in enumerate(contours):
+                    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], 2)
 
             cv2.imshow('test', vis)
             self.frame_idx += 1
             self.prev_gray = frame_gray
-      
 
             self.ch = 0xFF & cv2.waitKey(delayTime) # 20
             ch = self.ch
