@@ -208,7 +208,9 @@ class App:
         self.prevContours = []
         self.prevContourLabels = []
         self.prevContourMask = 0
-        self.prev2ContourMask = 0 
+        self.prevLabelHist = []
+        self.maxLabel = 200
+        self.minTime = 8
 
     def run(self):
         
@@ -230,6 +232,8 @@ class App:
         delayTime = 1
         jump = 20
         badframeCnt = 0
+
+        
 
         while True:
             ret, frame = self.cam.read()
@@ -312,6 +316,8 @@ class App:
 
                 # init contourLabels, like [-1, -1, ..] or []
                 contourLabels = [-1 for i in range(len(contours))]
+                labelHist = [0 for i in range(self.maxLabel)]
+
 
                 # if it is the first frame
                 if len(self.prevCenters) is 0: 
@@ -331,7 +337,12 @@ class App:
                                 if dist < minDist:
                                     minDist = dist
                                     prevIndex = i
-                            contourLabels[index] = self.prevContourLabels[prevIndex]
+                            label = self.prevContourLabels[prevIndex]
+                            contourLabels[index] = label
+                            if label < self.maxLabel:
+                                labelHist[label] = self.prevLabelHist[label] + 1
+                            else:
+                                print("error: label > maxLabel, reset maxLabel")
 
                         # if the current contour appears for the first time
                         else: 
@@ -341,14 +352,26 @@ class App:
                                     label = label + 1
                                 else:
                                     contourLabels[index] = label
+                                    if label < self.maxLabel:
+                                        labelHist[label] = self.prevLabelHist[label] + 1
                                     break
+                
                 self.prevCenters = centers
                 self.prevContourLabels = contourLabels
-                print(contourLabels)
+                self.prevLabelHist = labelHist
                 self.prevContourMask = fy
+              
+                if max(labelHist) > self.minTime:
+                    longTimeLabel = [i for i,labelCnt in enumerate(labelHist) if labelCnt == max(labelHist)]
+                    longTimeLabel = longTimeLabel[0]
+                    longTimeLabelIndex = [i for i, label in enumerate(contourLabels) if label == longTimeLabel]
 
-                for i, c in enumerate(contours):
-                    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], 2)
+                    if len(longTimeLabelIndex) is not 0:
+                        longTimeLabelIndex = longTimeLabelIndex[0]
+                        cv2.drawContours( vis, contours, longTimeLabelIndex, color[0], 2)
+                
+                #for i, c in enumerate(contours):
+                #    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], labelHist[contourLabels[i]])
 
             cv2.imshow('test', vis)
             self.frame_idx += 1
