@@ -27,9 +27,15 @@ import cv2
 import video
 from common import anorm2, draw_str
 from time import clock
+import os
 
+import sys
+sys.path.insert(0, './mtcnn')
+import demo_mtcnn
 
 _DEBUG=False
+
+roiNumber = 0
 
 # calcOpticalFlowPyrLK
 lk_params = dict( winSize  = (15, 15),
@@ -209,7 +215,7 @@ class App:
         self.prevContourMask = 0
         self.prevLabelHist = []
         self.maxLabel = 200
-        self.minTime = 8
+        self.minTime = 5
 
     def run(self):
         
@@ -232,7 +238,9 @@ class App:
         jump = 20
         badframeCnt = 0
 
-        
+        facedetector = demo_mtcnn.initFaceDetector()
+
+        standup_roi = [] # [[x1,y1,x2,y2], [], [] ..]
 
         while True:
             ret, frame = self.cam.read()
@@ -242,7 +250,9 @@ class App:
                     break
                 else:
                     continue
+
             
+
             #########
             # Step 0: preprocessing
             #########
@@ -359,18 +369,60 @@ class App:
                 self.prevContourLabels = contourLabels
                 self.prevLabelHist = labelHist
                 self.prevContourMask = fy
-              
-                if max(labelHist) > self.minTime:
-                    longTimeLabel = [i for i,labelCnt in enumerate(labelHist) if labelCnt == max(labelHist)]
-                    longTimeLabel = longTimeLabel[0]
-                    longTimeLabelIndex = [i for i, label in enumerate(contourLabels) if label == longTimeLabel]
+             
 
+                longTimeLabels = [i for i,labelCnt in enumerate(labelHist) if labelCnt >= self.minTime]
+                for currentLabel in longTimeLabels:
+                    longTimeLabelIndex = [i for i, label in enumerate(contourLabels) if label == currentLabel]
                     if len(longTimeLabelIndex) is not 0:
                         longTimeLabelIndex = longTimeLabelIndex[0]
+                        x,y,w,h = cv2.boundingRect(contours[longTimeLabelIndex])
+                        #cv2.rectangle(vis, (x,y), (x+w, y+h), (0,255,0), 1)
+                       
+                        # save to jpg
+                        #global roiNumber 
+                        #cv2.imwrite( os.path.split(self.video_src)[0] + '/disdata/' + str(roiNumber) + '.jpg', frame[y:y+h, x:x+w])
+                        #roiNumber = roiNumber + 1
+                        
+                        # detect face
+                        face, boxes = demo_mtcnn.haveFace(frame[y:y+h, x:x+w], facedetector)
+                        
+                        # standup with face
+                        if face and flow[y+h/2, x+w/2][1] < 0:
+                            #cv2.rectangle(vis, (x,y), (x+w, y+h), (0,0,255), 4)
+                            center_x = x + w / 2.0
+                            center_y = y + h / 2.0
+                            found = False
+                            for roi in standup_roi:
+                                if center_x > roi[0] and center_x < roi[2] and center_y > roi[1] and center_y < roi[3]: 
+                                    found = True
+                            if not found:
+                                standup_roi.append([x,y,x+w, y+h])
+
+                            print("standup_roi:", standup_roi)
+
+                        # sitdown with face
+                        if face and flow[y+h/2, x+w/2][1] > 0:
+                            center_x = x + w / 2.0
+                            center_y = y + h / 2.0
+                            found = False
+                            found_index = -1
+                            for index, roi in enumerate(standup_roi):
+                                if center_x > roi[0] and center_x < roi[2] and center_y > roi[1] and center_y < roi[3]: 
+                                    found = True
+                                    found_index = index
+                            if found:
+                                del standup_roi[found_index]
+
+                        
                         cv2.drawContours( vis, contours, longTimeLabelIndex, color[0], 2)
-                
+
                 #for i, c in enumerate(contours):
                 #    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], labelHist[contourLabels[i]])
+
+            for r in standup_roi:
+                cv2.rectangle(vis, (r[0],r[1]), (r[2], r[3]), (0,0,255), 4)
+                
 
             cv2.imshow('test', vis)
             self.frame_idx += 1
