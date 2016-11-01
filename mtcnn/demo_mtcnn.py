@@ -288,7 +288,7 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
     #####
     # 1 #
     #####
-    print "[1]:",total_boxes.shape[0]
+    #print "[1]:",total_boxes.shape[0]
     #print total_boxes
     #return total_boxes, [] 
 
@@ -298,7 +298,7 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
         # nms
         pick = nms(total_boxes, 0.7, 'Union')
         total_boxes = total_boxes[pick, :]
-        print "[2]:",total_boxes.shape[0]
+        #print "[2]:",total_boxes.shape[0]
         
         # revise and convert to square
         regh = total_boxes[:,3] - total_boxes[:,1]
@@ -316,10 +316,10 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
         #print total_boxes
 
         total_boxes = rerec(total_boxes) # convert box to square
-        print "[4]:",total_boxes.shape[0]
+        #print "[4]:",total_boxes.shape[0]
         
         total_boxes[:,0:4] = np.fix(total_boxes[:,0:4])
-        print "[4.5]:",total_boxes.shape[0]
+        #print "[4.5]:",total_boxes.shape[0]
         #print total_boxes
         [dy, edy, dx, edx, y, ey, x, ex, tmpw, tmph] = pad(total_boxes, w, h)
 
@@ -384,7 +384,7 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
         
         score =  np.array([score[pass_t]]).T
         total_boxes = np.concatenate( (total_boxes[pass_t, 0:4], score), axis = 1)
-        print "[5]:",total_boxes.shape[0]
+        #print "[5]:",total_boxes.shape[0]
         #print total_boxes
 
         #print "1.5:",total_boxes.shape
@@ -396,16 +396,16 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
             #print 'pick', pick
             if len(pick) > 0 :
                 total_boxes = total_boxes[pick, :]
-                print "[6]:",total_boxes.shape[0]
+                #print "[6]:",total_boxes.shape[0]
                 total_boxes = bbreg(total_boxes, mv[:, pick])
-                print "[7]:",total_boxes.shape[0]
+                #print "[7]:",total_boxes.shape[0]
                 total_boxes = rerec(total_boxes)
-                print "[8]:",total_boxes.shape[0]
+                #print "[8]:",total_boxes.shape[0]
             
         #####
         # 2 #
         #####
-        print "2:",total_boxes.shape
+        #print "2:",total_boxes.shape
 
         numbox = total_boxes.shape[0]
         if numbox > 0:
@@ -441,7 +441,7 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
             points = points[pass_t, :]
             score = np.array([score[pass_t]]).T
             total_boxes = np.concatenate( (total_boxes[pass_t, 0:4], score), axis=1)
-            print "[9]:",total_boxes.shape[0]
+            #print "[9]:",total_boxes.shape[0]
             
             mv = out['conv6-2'][pass_t, :].T
             w = total_boxes[:,3] - total_boxes[:,1] + 1
@@ -452,19 +452,19 @@ def detect_face(img, minsize, PNet, RNet, ONet, threshold, fastresize, factor):
 
             if total_boxes.shape[0] > 0:
                 total_boxes = bbreg(total_boxes, mv[:,:])
-                print "[10]:",total_boxes.shape[0]
+                #print "[10]:",total_boxes.shape[0]
                 pick = nms(total_boxes, 0.7, 'Min')
                 
                 #print pick
                 if len(pick) > 0 :
                     total_boxes = total_boxes[pick, :]
-                    print "[11]:",total_boxes.shape[0]
+                    #print "[11]:",total_boxes.shape[0]
                     points = points[pick, :]
 
     #####
     # 3 #
     #####
-    print "3:",total_boxes.shape
+    #print "3:",total_boxes.shape
 
     return total_boxes, points
 

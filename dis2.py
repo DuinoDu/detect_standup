@@ -121,6 +121,11 @@ def warp_flow(img, flow):
     res = cv2.remap(img, flow, None, cv2.INTER_LINEAR)
     return res
 
+def drawface(img, faceRegion):
+    for r in faceRegion:    
+        cv2.rectangle(img, (int(r[0]), int(r[1])), (int(r[2]), int(r[3])), (0,255,0), 3)
+    return img
+
 color = [(255,0,0),
          (0,255,0),
          (0,0,255),
@@ -216,6 +221,7 @@ class App:
         self.prevLabelHist = []
         self.maxLabel = 200
         self.minTime = 5
+        self.minFaceDistance = 10
 
     def run(self):
         
@@ -241,6 +247,7 @@ class App:
         facedetector = demo_mtcnn.initFaceDetector()
 
         standup_roi = [] # [[x1,y1,x2,y2], [], [] ..]
+        labelFace = {} # key:label, value:boxes;  contour1[ box1[[t1],[t2],[t3]], box2[], box3[] ]
 
         while True:
             ret, frame = self.cam.read()
@@ -327,7 +334,6 @@ class App:
                 contourLabels = [-1 for i in range(len(contours))]
                 labelHist = [0 for i in range(self.maxLabel)]
 
-
                 # if it is the first frame
                 if len(self.prevCenters) is 0: 
                     contourLabels = [i for i in range(len(contours))]
@@ -338,7 +344,7 @@ class App:
 
                         # if current contour has existed
                         if self.prevContourMask[cy][cx] != 0 :
-                            # find corresponding hull
+                            # find corresponding contour
                             minDist = 10000
                             prevIndex = 0
                             for i, c in enumerate(self.prevCenters):
@@ -370,58 +376,111 @@ class App:
                 self.prevLabelHist = labelHist
                 self.prevContourMask = fy
              
-
+                # filtering using self.minTime
                 longTimeLabels = [i for i,labelCnt in enumerate(labelHist) if labelCnt >= self.minTime]
+                
+
+                #########
+                # Step 5: detect face (detect face in each contour)
+                #########
+
+                face_region = []
+
                 for currentLabel in longTimeLabels:
+                    # get index in contourLabels
                     longTimeLabelIndex = [i for i, label in enumerate(contourLabels) if label == currentLabel]
                     if len(longTimeLabelIndex) is not 0:
                         longTimeLabelIndex = longTimeLabelIndex[0]
                         x,y,w,h = cv2.boundingRect(contours[longTimeLabelIndex])
-                        #cv2.rectangle(vis, (x,y), (x+w, y+h), (0,255,0), 1)
-                       
-                        # save to jpg
-                        #global roiNumber 
-                        #cv2.imwrite( os.path.split(self.video_src)[0] + '/disdata/' + str(roiNumber) + '.jpg', frame[y:y+h, x:x+w])
-                        #roiNumber = roiNumber + 1
-                        
-                        # detect face
                         face, boxes = demo_mtcnn.haveFace(frame[y:y+h, x:x+w], facedetector)
-                        
-                        # standup with face
-                        if face and flow[y+h/2, x+w/2][1] < 0:
-                            #cv2.rectangle(vis, (x,y), (x+w, y+h), (0,0,255), 4)
-                            center_x = x + w / 2.0
-                            center_y = y + h / 2.0
-                            found = False
-                            for roi in standup_roi:
-                                if center_x > roi[0] and center_x < roi[2] and center_y > roi[1] and center_y < roi[3]: 
-                                    found = True
-                            if not found:
-                                standup_roi.append([x,y,x+w, y+h])
+                        if not face:
+                            continue
+                        else:
+                            for i in range(boxes.shape[0]):
+                                # change coordinate, from bbox to frame
+                                boxes[i][0] += x
+                                boxes[i][1] += y
+                                boxes[i][2] += x
+                                boxes[i][3] += y
+                            boxes = boxes.tolist()
+                            face_region = boxes # 2
+                            print("boxes len", len(boxes))
 
-                            print("standup_roi:", standup_roi)
+                            if currentLabel in labelFace.keys():
+                                for box in boxes:
+                                    center = ((box[0] + box[2])/2, (box[1] + box[3])/2)
+                                    minDist = sys.maxint
+                                    nearBoxIndex = -1
+                                    # find previous box 
+                                    for boxIndex, prevBox in enumerate(labelFace[currentLabel]):
+                                        prevCenter = ((prevBox[-1][0] + prevBox[-1][2])/2, (prevBox[-1][1] + prevBox[-1][3])/2)
+                                        dist = np.abs(prevCenter[0]-center[0]) + np.abs(prevCenter[1]-center[1])
+                                        if dist < minDist:
+                                            minDist = dist
+                                            nearBoxIndex = boxIndex
+                                    # add box to labelFace
+                                    labelFace[currentLabel][nearBoxIndex].append(box)
+                            else:
+                                # create a new key-value, saving (label, boxes)
+                                labelFace[currentLabel] = [[i] for i in boxes]
+                                print(labelFace[currentLabel])
 
-                        # sitdown with face
-                        if face and flow[y+h/2, x+w/2][1] > 0:
-                            center_x = x + w / 2.0
-                            center_y = y + h / 2.0
-                            found = False
-                            found_index = -1
-                            for index, roi in enumerate(standup_roi):
-                                if center_x > roi[0] and center_x < roi[2] and center_y > roi[1] and center_y < roi[3]: 
-                                    found = True
-                                    found_index = index
-                            if found:
-                                del standup_roi[found_index]
+                # run when contour disappears
+                for label in labelFace.keys():
+                    if label not in longTimeLabels:
+                        # one labelFace[label] may contain a lot of boxSequences
+                        for boxSeq in labelFace[label]:
+                            box1 = boxSeq[0]
+                            box2 = boxSeq[-1]
+                            center1 = ((box1[0] + box1[2])/2, (box1[1] + box1[3])/2)
+                            center2 = ((box2[0] + box2[2])/2, (box2[1] + box2[3])/2)
+                            dist = np.abs(center1[0]-center2[0]) + np.abs(center1[1]-center2[1])
+                            print("dist:{}".format(dist))
 
-                        
-                        cv2.drawContours( vis, contours, longTimeLabelIndex, color[0], 2)
+                            if dist > self.minFaceDistance: # self.minFaceDistance = 10
+                                print("Standup or Sitdown: ", boxSeq[-1])
+                                standup_roi.append(boxSeq[-1])
+                        labelFace.pop(label)
 
-                #for i, c in enumerate(contours):
-                #    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], labelHist[contourLabels[i]])
+                print("### labelFace  ###")
+                numbox = 0
+                for boxes in labelFace.values():
+                    numbox = len(boxes)
+                    for boxseq in boxes:
+                        print("boxseq", boxseq)
+                print("num of faces", numbox)
+                print("contours containing face", len(labelFace))
+               
+                print("\n")
+                ## calc face speed
+                #face_speed = []
+                #for r in face_region:
+                #    center_x = (r[0] + r[2])/2
+                #    center_y = (r[1] + r[3])/2
+                #    speed = flow[center_y, center_x]
+                #    face_speed.append(speed)
+                ##print(face_speed)
+
+                
+
+                ## filter face using speed at y axis
+                #newFaceRegion = []
+                #face_standup_t = -0.5
+                #face_sitdown_t = 0.5
+                #for i, face in enumerate(face_region):
+                #    if face_speed[i][1] < face_standup_t:
+                #        newFaceRegion.append(face)
+                #    elif face_speed[i][1] > face_sitdown_t:
+                #        newFaceRegion.append(face)
+                #face_region = newFaceRegion
+
+                drawface(vis, face_region)
+
+                for i, c in enumerate(contours):
+                    cv2.drawContours( vis, [c], -1, color[contourLabels[i]%len(color)], 1) #labelHist[contourLabels[i]])
 
             for r in standup_roi:
-                cv2.rectangle(vis, (r[0],r[1]), (r[2], r[3]), (0,0,255), 4)
+                cv2.rectangle(vis, (int(r[0]), int(r[1])), (int(r[2]), int(r[3])), (0,0,255), 4)
                 
 
             cv2.imshow('test', vis)
